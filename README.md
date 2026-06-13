@@ -11,7 +11,7 @@
 
 ## Overview
 
-`poset-operad` provides a composable Python library for analysing **poset adjacency matrices** through the lens of the **Poset Operad**. The library implements:
+`poset-operad` provides a composable Python library for analysing **poset adjacency matrices** and **determining poset isomorphism** through the lens of the **Poset Matrix Decomposition**. The library implements:
 
 | Module | Responsibility |
 |---|---|
@@ -127,12 +127,16 @@ pytest -k "isomorphism"          # filter by keyword
 If you use this library in academic work, please cite:
 
 ```bibtex
-@software{poset_operad,
-  title  = {poset-operad: Structural Decomposition for Poset Matrices},
-  author = {Your Name},
-  year   = {2024},
-  url    = {https://github.com/your-org/poset-operad}
+@software{mwafise2026poset,
+  author       = {Mesinga Mwafise, Arnauld},
+  title        = {poset-decomposition-isomorphism: Matrix Decomposition Algorithms for Accelerated Poset Isomorphism},
+  year         = {2026},
+  version      = {1.0.0},
+  publisher    = {GitHub},
+  journal      = {GitHub Repository},
+  url          = {https://github.com}
 }
+
 ```
 
 ---
