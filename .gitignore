@@ -1,0 +1,39 @@
+
+# Python bytecode and temporary cache folders
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment files containing secrets and API keys
+.env
+*.env
+.venv/
+env/
+ENV/
+venv/
+
+# Python installer packages and build directories
+pip-log.txt
+pip-delete-this-directory.txt
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Operating system files
+Thumbs.db
+Desktop.ini
+.DS_Store
