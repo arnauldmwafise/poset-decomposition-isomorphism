@@ -1,4 +1,4 @@
-# poset-operad
+# poset-decomposition-isomorphism
 
 **Structural decomposition and isomorphism verification for Partially Ordered Set (Poset) matrices via the Poset Operad.**
 
