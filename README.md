@@ -11,6 +11,10 @@
 
 ## Overview
 
+## Overview
+This notebook suite provides executable implementations of the algorithms developed in [Matrix Decomposition Algorithms for Accelerated Poset Isomorphism](https://scienceopen.com). It serves as a computational companion to the paper, supporting reproducibility, experimentation, and further research on poset structure analysis.
+
+
 `poset-operad` provides a composable Python library for analysing **poset adjacency matrices** and **determining poset isomorphism** through the lens of the **Poset Matrix Decomposition**. The library implements:
 
 | Module | Responsibility |
@@ -68,6 +72,8 @@ print(verify_poset_isomorphism_hierarchical(M, M2))  # True
 
 ```
 poset-operad/
+├── notebooks/                  # Jupyter notebooks for experimentation & validation
+│   └── poset_decomposition_isomorphism_test.ipynb
 ├── poset_operad/               # Main package
 │   ├── __init__.py
 │   ├── core/                   # Atomic predicates & matrix primitives
@@ -101,7 +107,6 @@ poset-operad/
 └── README.md
 ```
 
----
 
 ## Running the Test Suite
 
