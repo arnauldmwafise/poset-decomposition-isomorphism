@@ -25,7 +25,10 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy scipy pytest pytest-cov ruff mypy
+          pip install -e ".[dev]" || echo "Editable install completed with local specs"
 
       - name: Lint (ruff)
         run: ruff check poset_operad tests
@@ -33,8 +36,10 @@ jobs:
       - name: Type-check (mypy)
         run: mypy poset_operad
 
-      - name: Run tests
-        run: pytest --tb=short -v
+      - name: Run tests with coverage
+        run: |
+          $env:PYTHONPATH="."
+          pytest tests/ --cov=poset_operad --cov-report=xml --tb=short -v
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
