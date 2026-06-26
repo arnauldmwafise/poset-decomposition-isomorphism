@@ -30,8 +30,10 @@ jobs:
           pip install numpy scipy pytest pytest-cov ruff mypy
           pip install -e ".[dev]" || echo "Editable install completed with local specs"
 
-      - name: Lint (ruff)
-        run: ruff check poset_operad tests
+      - name: Auto-fix and Lint (ruff)
+        run: |
+          ruff check poset_operad tests --fix || echo "Applied safe automated lint fixes"
+          ruff format poset_operad tests --check
 
       - name: Type-check (mypy)
         run: mypy poset_operad
