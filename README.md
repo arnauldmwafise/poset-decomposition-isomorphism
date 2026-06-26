@@ -1,5 +1,8 @@
 # poset-decomposition-isomorphism
 
+[![Python CI](https://github.com
+)](https://github.com)
+
 **Structural decomposition and isomorphism verification for Partially Ordered Set (Poset) matrices via the Poset Operad.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
