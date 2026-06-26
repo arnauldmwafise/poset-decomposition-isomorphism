@@ -38,8 +38,9 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          $env:PYTHONPATH="."
           pytest tests/ --cov=poset_operad --cov-report=xml --tb=short -v
+        env:
+          PYTHONPATH: .
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
