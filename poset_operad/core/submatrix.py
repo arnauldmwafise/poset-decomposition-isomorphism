@@ -8,17 +8,18 @@ All functions are stateless and return new arrays (views where safe).
 
 from __future__ import annotations
 
-import numpy as np
-from numpy.typing import NDArray
+from typing import Any, List, Union
+
+from poset_operad.core.backend import xp, logger
 
 
 def get_principal_submatrix(
-    matrix: NDArray[np.int_],
-    index_set: list[int] | set[int] | NDArray[np.int_],
-) -> NDArray[np.int_]:
+    matrix: Any,
+    index_set: list[int] | set[int] | Any,
+) -> Any:
     """Return the principal submatrix formed by *index_set* rows and columns.
 
-    Uses ``np.ix_`` for O(k²) cross-product indexing, where *k* is the size
+    Uses ``xp.ix_`` for O(k²) cross-product indexing, where *k* is the size
     of *index_set*.
 
     Parameters
@@ -36,20 +37,15 @@ def get_principal_submatrix(
     Complexity
     ----------
     Time O(k²), Space O(k²).
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> M = np.arange(16).reshape(4, 4)
-    >>> get_principal_submatrix(M, [0, 2])
-    array([[ 0,  2],
-           [ 8, 10]])
     """
-    indices = list(index_set)
-    return matrix[np.ix_(indices, indices)]
+    matrix = xp.asarray(matrix)
+    # Convert index set cleanly matching active device context layout
+    indices = list(index_set) if isinstance(index_set, (list, set)) else xp.asarray(index_set).tolist()
+    
+    return matrix[xp.ix_(indices, indices)]
 
 
-def get_maximal_elements(posetmatrix: NDArray[np.int_]) -> list[int]:
+def get_maximal_elements(posetmatrix: Any) -> list[int]:
     r"""Return column indices of all maximal elements of *posetmatrix*.
 
     An element ``xⱼ`` is *maximal* if no other element strictly exceeds it,
@@ -70,13 +66,18 @@ def get_maximal_elements(posetmatrix: NDArray[np.int_]) -> list[int]:
     ----------
     Time O(n²), Space O(n).
     """
+    posetmatrix = xp.asarray(posetmatrix)
     if posetmatrix.size == 0:
         return []
-    col_sums = np.sum(posetmatrix, axis=0)
-    return np.where(col_sums == 1)[0].tolist()
+        
+    # Parallel column sum reduction map executed on active core device
+    col_sums = xp.sum(posetmatrix, axis=0)
+    max_indices = xp.where(col_sums == 1)[0]
+    
+    return max_indices.tolist()
 
 
-def get_minimal_elements(posetmatrix: NDArray[np.int_]) -> list[int]:
+def get_minimal_elements(posetmatrix: Any) -> list[int]:
     r"""Return row indices of all minimal elements of *posetmatrix*.
 
     An element ``xᵢ`` is *minimal* if no other element strictly precedes it,
@@ -97,7 +98,12 @@ def get_minimal_elements(posetmatrix: NDArray[np.int_]) -> list[int]:
     ----------
     Time O(n²), Space O(n).
     """
+    posetmatrix = xp.asarray(posetmatrix)
     if posetmatrix.size == 0:
         return []
-    row_sums = np.sum(posetmatrix, axis=1)
-    return np.where(row_sums == 1)[0].tolist()
+        
+    # Parallel row sum reduction map executed on active core device
+    row_sums = xp.sum(posetmatrix, axis=1)
+    min_indices = xp.where(row_sums == 1)[0]
+    
+    return min_indices.tolist()

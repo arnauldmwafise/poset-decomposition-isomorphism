@@ -12,18 +12,18 @@ disconnected sub-matrices as the structural sieve.
 from __future__ import annotations
 
 import itertools
-import numpy as np
-from numpy.typing import NDArray
 from collections.abc import Callable
+from typing import Any, Dict, Tuple
 
+from poset_operad.core.backend import xp, logger
 from poset_operad.decomposition.direct_sum import extract_maximal_disconnected_submatrices
 from poset_operad.utils.equality import are_poset_structures_strictly_equal
 from poset_operad.utils.metrics import compute_triangular_saturation_metrics
 
 
 def verify_isomorphism_via_maximal_disconnection_and_saturation(
-    M1: NDArray[np.int_],
-    M2: NDArray[np.int_],
+    M1: Any,
+    M2: Any,
 ) -> bool:
     """Verify isomorphism via saturation metrics and maximal disconnected sub-matrices.
 
@@ -47,19 +47,29 @@ def verify_isomorphism_via_maximal_disconnection_and_saturation(
     ----------
     Time O(N⁴), Space O(N²).
     """
+    M1 = xp.asarray(M1)
+    M2 = xp.asarray(M2)
+
     metric1 = compute_triangular_saturation_metrics(M1)
     metric2 = compute_triangular_saturation_metrics(M2)
-    if sorted(metric1) != sorted(metric2):
+    
+    # Fast global invariant triage step
+    if sorted(list(metric1)) != sorted(list(metric2)):
+        logger.info("Saturation isomorphism check: Fast structural mismatch caught on triangular metrics.")
         return False
 
+    logger.debug("Triangular metrics matched. Extracting maximal disconnected submatrices for deep verification.")
     output1 = extract_maximal_disconnected_submatrices(M1)
     output2 = extract_maximal_disconnected_submatrices(M2)
-    return are_poset_structures_strictly_equal(output1, output2)
+    
+    isomorphic = are_poset_structures_strictly_equal(output1, output2)
+    logger.info(f"Maximal disconnection isomorphism check complete. Result Isomorphic: {isomorphic}")
+    return isomorphic
 
 
 def check_all_isomorphisms(
-    testbag: list[NDArray[np.int_]],
-    predicate: Callable[[NDArray[np.int_], NDArray[np.int_]], bool],
+    testbag: list[Any],
+    predicate: Callable[[Any, Any], bool],
 ) -> dict[tuple[int, int], bool]:
     """Exhaustive pairwise isomorphism test across every ordered pair in *testbag*.
 
@@ -80,7 +90,15 @@ def check_all_isomorphisms(
     Time O(n² · T), Space O(n²).
     """
     n = len(testbag)
-    return {
-        (x, y): predicate(testbag[x], testbag[y])
+    logger.info(f"Launching exhaustive pairwise evaluation sweep over a bag of {n} poset matrices ({n * n} checks).")
+    
+    # Pre-cast all array vectors onto the optimized target hardware device layer
+    device_bag = [xp.asarray(matrix) for matrix in testbag]
+    
+    results = {
+        (x, y): bool(predicate(device_bag[x], device_bag[y]))
         for x, y in itertools.product(range(n), repeat=2)
     }
+    
+    logger.info("Pairwise isomorphism matrix evaluation completed successfully.")
+    return results

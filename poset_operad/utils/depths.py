@@ -7,6 +7,10 @@ Generates equivalent depth-pair configurations for boundary comparison.
 
 from __future__ import annotations
 
+from typing import List, Tuple
+
+from poset_operad.core.backend import logger
+
 
 def generate_semi_depth_equivalents(depths: tuple[int, int]) -> list[tuple[int, int]]:
     """Return all depth pairs that yield the same structural state as *depths*.
@@ -51,4 +55,6 @@ def generate_semi_depth_equivalents(depths: tuple[int, int]) -> list[tuple[int, 
     elif d1 == d2:
         equivs.extend([(d1 * 2, 0), (0, d2 * 2)])
 
-    return list(set(equivs))
+    unique_equivs = list(set(equivs))
+    logger.debug(f"Resolved symmetry equivalents for depth profile {depths} -> {unique_equivs}")
+    return unique_equivs

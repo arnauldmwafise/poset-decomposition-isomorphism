@@ -7,12 +7,13 @@ Scalar invariants derived from the triangular structure of poset matrices.
 
 from __future__ import annotations
 
-import numpy as np
-from numpy.typing import NDArray
+from typing import Any, Tuple
+
+from poset_operad.core.backend import xp
 
 
 def compute_triangular_saturation_metrics(
-    matrix: NDArray[np.int_],
+    matrix: Any,
 ) -> tuple[int, int]:
     """Return ``(saturated_rows, saturated_cols)`` for the lower-triangular mask.
 
@@ -42,13 +43,19 @@ def compute_triangular_saturation_metrics(
     >>> compute_triangular_saturation_metrics(M)
     (3, 3)
     """
+    matrix = xp.asarray(matrix)
     n = matrix.shape[0]
     if n == 0:
         return 0, 0
 
-    lower_tri: NDArray[np.bool_] = np.tril(np.ones((n, n), dtype=bool))
-    cond: NDArray[np.bool_] = (matrix == 1) | (~lower_tri)
+    # 1. Create an architecture-aware Lower Triangular Mask natively
+    lower_tri = xp.tril(xp.ones((n, n), dtype=bool))
+    
+    # 2. Vectorized verification without device-to-host memory syncs
+    cond = (matrix == 1) | (~lower_tri)
 
-    rows = int(np.count_nonzero(np.all(cond, axis=1)))
-    cols = int(np.count_nonzero(np.all(cond, axis=0)))
+    # 3. Parallel aggregation across available execution cores
+    rows = int(xp.sum(xp.all(cond, axis=1)))
+    cols = int(xp.sum(xp.all(cond, axis=0)))
+    
     return rows, cols

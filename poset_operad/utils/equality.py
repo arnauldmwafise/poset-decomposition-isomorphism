@@ -12,14 +12,14 @@ graph isomorphism.
 from __future__ import annotations
 
 from collections import Counter
+from typing import Any
 
-import numpy as np
-from numpy.typing import NDArray
+from poset_operad.core.backend import xp, logger
 
 
 def are_poset_structures_strictly_equal(
-    list_a: list | NDArray[np.int_] | None,
-    list_b: list | NDArray[np.int_] | None,
+    list_a: list | Any | None,
+    list_b: list | Any | None,
 ) -> bool:
     """Verify structural and value-level identity between two nested poset collections.
 
@@ -49,13 +49,13 @@ def are_poset_structures_strictly_equal(
     if type(list_a) is not type(list_b):
         return False
 
-    if isinstance(list_a, np.ndarray):
-        assert isinstance(list_b, np.ndarray)
+    if isinstance(list_a, xp.ndarray):
         if list_a.shape != list_b.shape:
             return False
-        return np.array_equal(
-            np.sort(list_a, axis=None), np.sort(list_b, axis=None)
-        )
+        # GPU parallel sort across flat data maps
+        return bool(xp.array_equal(
+            xp.sort(list_a, axis=None), xp.sort(list_b, axis=None)
+        ))
 
     if not isinstance(list_a, list) or not isinstance(list_b, list):
         return list_a == list_b
@@ -63,15 +63,19 @@ def are_poset_structures_strictly_equal(
     if len(list_a) != len(list_b):
         return False
 
-    def _signature(item: object) -> object:
-        if isinstance(item, np.ndarray):
-            return (item.shape, np.sort(item, axis=None).tobytes())
+    def _signature(item: Any) -> tuple | Any:
+        if isinstance(item, xp.ndarray):
+            # Parallel element sort executed across active device cores
+            return (item.shape, xp.sort(item, axis=None).tobytes())
         if isinstance(item, list):
             return tuple(
                 sorted((_signature(sub) for sub in item), key=lambda x: str(x))
             )
-        return hash(item)
+        return (type(item), hash(item))
 
-    return Counter(_signature(x) for x in list_a) == Counter(
+    matched = Counter(_signature(x) for x in list_a) == Counter(
         _signature(x) for x in list_b
     )
+    
+    logger.debug(f"Nested multiset topology equivalence checked. Match status: {matched}")
+    return matched

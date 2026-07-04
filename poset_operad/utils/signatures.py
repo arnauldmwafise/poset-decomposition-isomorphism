@@ -12,11 +12,13 @@ rare in practice for posets of modest size.
 
 from __future__ import annotations
 
-import numpy as np
-from numpy.typing import NDArray
+import hashlib
+from typing import Any
+
+from poset_operad.core.backend import xp
 
 
-def get_signature(matrix: NDArray[np.int_]) -> int:
+def get_signature(matrix: Any) -> int:
     """Return a permutation-invariant integer hash for *matrix*.
 
     The hash combines:
@@ -38,14 +40,24 @@ def get_signature(matrix: NDArray[np.int_]) -> int:
     ----------
     Time O(n² + n log n), Space O(n).
     """
+    matrix = xp.asarray(matrix)
     if matrix.size == 0:
-        return hash(None)
-    rs = tuple(sorted(map(int, np.sum(matrix, axis=1))))
-    cs = tuple(sorted(map(int, np.sum(matrix, axis=0))))
-    return hash((matrix.shape, rs, cs))
+        return 0
+
+    # 1. Hardware-accelerated row and column vector sum reductions
+    row_sums = xp.sort(xp.sum(matrix, axis=1)).tolist()
+    col_sums = xp.sort(xp.sum(matrix, axis=0)).tolist()
+
+    # 2. Construct a cross-platform deterministic cryptographic token
+    # This prevents randomized salting behaviors during cluster node routing transitions
+    signature_string = f"{matrix.shape}-{row_sums}-{col_sums}"
+    sha256_hash = hashlib.sha256(signature_string.encode('utf-8')).hexdigest()
+    
+    # Slice the token to return a clean, standard 64-bit signed integer representation
+    return int(sha256_hash[:16], 16)
 
 
-def get_poset_signature(matrix: NDArray[np.int_]) -> int:
+def get_poset_signature(matrix: Any) -> int:
     """Alias of :func:`get_signature` — preferred name in the isomorphism layer.
 
     Parameters

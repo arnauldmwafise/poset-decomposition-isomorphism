@@ -3,18 +3,13 @@ poset_operad.decomposition.tree
 =================================
 
 Recursive poset decomposition tree.
-
-The *decomposition tree* captures the genealogy of a poset: it records how a
-complex order is built from smaller, connected sub-orders by iteratively
-stripping boundary layers and splitting disconnected cores.
 """
 
 from __future__ import annotations
 
-import numpy as np
-import networkx as nx
-from numpy.typing import NDArray
+from typing import Any, List, Tuple, Union, Callable
 
+from poset_operad.core.backend import xp, GPU_AVAILABLE, logger
 from poset_operad.core.predicates import is_non_trivial_poset
 from poset_operad.core.submatrix import get_principal_submatrix
 from poset_operad.decomposition.boundary import extract_disconnected_core_with_depths
@@ -23,42 +18,50 @@ from poset_operad.decomposition.boundary import extract_disconnected_core_with_d
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def decompose_dual_core_into_components(
-    poset_matrix: NDArray[np.int_],
-) -> tuple[list[tuple[NDArray[np.int_], NDArray[np.int_]]], list[NDArray[np.int_]]]:
-    """Decompose the disconnected core of a dualizable poset into connected components.
-
-    Steps
-    -----
-    1. Extract the disconnected core via
-       :func:`~poset_operad.decomposition.boundary.extract_disconnected_core_with_depths`.
-    2. Convert the core to an undirected NetworkX graph.
-    3. Identify connected components (disjoint index sets).
-    4. Extract each as a principal submatrix.
-
-    Parameters
-    ----------
-    poset_matrix:
-        n×n dualizable poset adjacency matrix.
-
-    Returns
-    -------
-    paired_results : list[tuple[np.ndarray, np.ndarray]]
-        ``(original_matrix, component_submatrix)`` pairs for lineage tracking.
-    components : list[np.ndarray]
-        Standalone connected-component submatrices.
-
-    Complexity
-    ----------
-    Time O(n²)–O(n³), Space O(n²).
-    """
+    poset_matrix: Any,
+) -> tuple[list[tuple[Any, Any]], list[Any]]:
+    """Decompose the disconnected core of a dualizable poset into connected components."""
+    poset_matrix = xp.asarray(poset_matrix)
     core_extraction = extract_disconnected_core_with_depths(poset_matrix)
     if core_extraction is None:
         return [], []
 
     disconn_core, _metadata = core_extraction
+    n = disconn_core.shape[0]
+    if n == 0:
+        return [], []
 
-    graph = nx.from_numpy_array(disconn_core)
-    components_indices = [sorted(c) for c in nx.connected_components(graph)]
+    if GPU_AVAILABLE:
+        import cupy as cp
+        M_undirected = ((disconn_core != 0) | (disconn_core.T != 0)).astype(cp.int32)
+        cp.fill_diagonal(M_undirected, 1)
+        
+        labels = cp.arange(n, dtype=cp.int32)
+        old_labels = cp.zeros(n, dtype=cp.int32)
+        edges = cp.argwhere(M_undirected > 0)
+        src, dst = edges[:, 0], edges[:, 1]
+        
+        while not cp.all(labels == old_labels):
+            old_labels = labels.copy()
+            cp.minimum.at(labels, src, old_labels[dst])
+            cp.minimum.at(labels, dst, old_labels[src])
+            labels = labels[labels]
+            
+        unique_labels = cp.unique(labels).tolist()
+        components_indices = [
+            cp.argwhere(labels == ul).flatten().tolist() for ul in unique_labels
+        ]
+    else:
+        from scipy.sparse import csr_matrix
+        from scipy.sparse.csgraph import connected_components
+        import numpy as np
+        
+        _, labels = connected_components(csr_matrix(disconn_core), directed=False)
+        unique_labels = np.unique(labels)
+        # FIX: Extract element [0] from np.where to unpack the index array cleanly
+        components_indices = [
+            np.where(labels == label)[0].tolist() for label in unique_labels
+        ]
 
     submatrices = [
         get_principal_submatrix(disconn_core, idx_list)
@@ -69,37 +72,16 @@ def decompose_dual_core_into_components(
 
 
 def build_poset_decomposition_tree(
-    root_matrix: NDArray[np.int_],
-) -> list[list[NDArray[np.int_]]]:
-    """Recursively decompose *root_matrix* into a hierarchy of non-trivial components.
-
-    The tree is built breadth-first:
-
-    * Each *level* holds the components discovered at that recursion depth.
-    * Only non-trivial components (neither chain nor antichain) are processed
-      further at the next level.
-    * Terminates when no new components are produced or all are trivial.
-
-    Parameters
-    ----------
-    root_matrix:
-        The initial n×n poset matrix to decompose.
-
-    Returns
-    -------
-    list[list[np.ndarray]]
-        Nested hierarchy; ``result[k]`` contains the components at depth ``k``.
-
-    Complexity
-    ----------
-    Time O(K · n²), Space O(K · n²), where K is the total number of
-    sub-matrices discovered across all levels.
-    """
-    hierarchy: list[list[NDArray[np.int_]]] = []
+    root_matrix: Any,
+) -> list[list[Any]]:
+    """Recursively decompose *root_matrix* into a hierarchy of non-trivial components."""
+    root_matrix = xp.asarray(root_matrix)
+    hierarchy: list[list[Any]] = []
     current_pool = [root_matrix]
+    level = 0
 
     while current_pool:
-        level_components: list[NDArray[np.int_]] = []
+        level_components: list[Any] = []
         for matrix in current_pool:
             _, components = decompose_dual_core_into_components(matrix)
             level_components.extend(components)
@@ -107,38 +89,20 @@ def build_poset_decomposition_tree(
         if not level_components:
             break
 
+        logger.info(f"Decomposition Tree Layer {level} completed. Discovered {len(level_components)} sub-components.")
         hierarchy.append(level_components)
         current_pool = [m for m in level_components if is_non_trivial_poset(m)]
+        level += 1
 
     return hierarchy
 
 
 def update_nested_posets(
-    collection: list | tuple | NDArray[np.int_],
-    func: object,
-) -> list | tuple | NDArray[np.int_]:
-    """Recursively apply *func* to every 2-D ndarray found in *collection*.
-
-    The original container types (``list`` / ``tuple``) are preserved.
-    If *func* returns a non-empty list for an array, that list replaces the
-    array; otherwise the array is kept unchanged.
-
-    Parameters
-    ----------
-    collection:
-        Nested structure potentially containing 2-D ndarrays.
-    func:
-        Transformation callable: ``np.ndarray → list``.
-
-    Returns
-    -------
-    Same structure as input, with 2-D arrays replaced by ``func``'s output.
-
-    Complexity
-    ----------
-    Time O(N · T), Space O(D + M) where D = max recursion depth.
-    """
-    if isinstance(collection, np.ndarray) and collection.ndim == 2:
+    collection: list | tuple | Any,
+    func: Callable,
+) -> list | tuple | Any:
+    """Recursively apply *func* to every 2-D ndarray found in *collection*."""
+    if isinstance(collection, xp.ndarray) and collection.ndim == 2:
         result = func(collection)  # type: ignore[operator]
         if isinstance(result, list) and len(result) > 0:
             return result

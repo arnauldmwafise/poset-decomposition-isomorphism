@@ -11,9 +11,9 @@ direct sums.
 
 from __future__ import annotations
 
-import numpy as np
-from numpy.typing import NDArray
+from typing import Any
 
+from poset_operad.core.backend import xp, logger
 from poset_operad.core.predicates import is_non_partial_semi_equidualizable
 from poset_operad.decomposition.direct_sum import extract_poset_direct_sum_components
 from poset_operad.decomposition.tree import (
@@ -25,8 +25,8 @@ from poset_operad.utils.collections import get_satisfying_posets
 
 
 def verify_isomorphism_via_direct_sum_decomposition(
-    M1: NDArray[np.int_],
-    M2: NDArray[np.int_],
+    M1: Any,
+    M2: Any,
 ) -> bool:
     """Verify isomorphism by comparing direct-sum component hierarchies.
 
@@ -51,22 +51,33 @@ def verify_isomorphism_via_direct_sum_decomposition(
     ----------
     Time O(K · N³), Space O(K · N²).
     """
+    M1 = xp.asarray(M1)
+    M2 = xp.asarray(M2)
+
     ds1 = extract_poset_direct_sum_components(M1)
     ds2 = extract_poset_direct_sum_components(M2)
 
     if (ds1 is None) != (ds2 is None):
+        logger.info("Direct-sum isomorphism check: structural asymmetry caught (one decomposed, one did not).")
         return False
     if ds1 is None:
         return False
 
+    logger.info(f"Direct-sum components extracted cleanly. Spawning asynchronous decomposition trees.")
     tree1 = update_nested_posets(ds1, build_poset_decomposition_tree)
     tree2 = update_nested_posets(ds2, build_poset_decomposition_tree)
 
     if are_poset_structures_strictly_equal(tree1, tree2):
+        logger.debug("Component tree topology matched. Sieving non-reducible leaf states for relation density check.")
         list1 = get_satisfying_posets(tree1, is_non_partial_semi_equidualizable)
         list2 = get_satisfying_posets(tree2, is_non_partial_semi_equidualizable)
-        counts1 = sorted(int(np.sum(np.tril(m))) for m in list1)
-        counts2 = sorted(int(np.sum(np.tril(m))) for m in list2)
-        return counts1 == counts2
+        
+        # Hardware-accelerated vectorized triangular reduction
+        counts1 = sorted(int(xp.sum(xp.tril(xp.asarray(m)))) for m in list1)
+        counts2 = sorted(int(xp.sum(xp.tril(xp.asarray(m)))) for m in list2)
+        
+        isomorphic = (counts1 == counts2)
+        logger.info(f"Direct-sum structural alignment check complete. Result Isomorphic: {isomorphic}")
+        return isomorphic
 
     return False

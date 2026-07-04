@@ -17,9 +17,9 @@ The algorithm proceeds top-down:
 from __future__ import annotations
 
 import hashlib
-import numpy as np
-from numpy.typing import NDArray
+from typing import Any, Dict
 
+from poset_operad.core.backend import xp, GPU_AVAILABLE, logger
 from poset_operad.core.predicates import is_trivial_poset
 from poset_operad.decomposition.boundary import extract_semiequidual_subcomponents
 from poset_operad.decomposition.tree import build_poset_decomposition_tree
@@ -29,7 +29,9 @@ from poset_operad.utils.equality import are_poset_structures_strictly_equal
 
 
 # ── Module-level memoization cache ────────────────────────────────────────────
-_isomorphism_cache: dict[tuple[str, str], bool] = {}
+# Structuring tracking keys as string structures prevents memory pointers
+# from causing alignment mismatches during multi-node cluster sync routines.
+_isomorphism_cache: Dict[str, bool] = {}
 
 
 def clear_cache() -> None:
@@ -41,16 +43,21 @@ def clear_cache() -> None:
     _isomorphism_cache.clear()
 
 
-def _matrix_hash(matrix: NDArray[np.int_]) -> str:
+def _matrix_hash(matrix: Any) -> str:
     """Return a deterministic SHA-256 hex digest of *matrix* content."""
-    return hashlib.sha256(matrix.tobytes()).hexdigest()
+    matrix = xp.asarray(matrix)
+    if GPU_AVAILABLE:
+        import cupy as cp
+        return hashlib.sha256(cp.asnumpy(matrix).tobytes()).hexdigest()
+    else:
+        return hashlib.sha256(matrix.tobytes()).hexdigest()
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def verify_poset_isomorphism_hierarchical(
-    matrix_a: NDArray[np.int_],
-    matrix_b: NDArray[np.int_],
+    matrix_a: Any,
+    matrix_b: Any,
     depth: int = 0,
 ) -> bool:
     """Verify structural isomorphism via hierarchical boundary decomposition.
@@ -67,21 +74,16 @@ def verify_poset_isomorphism_hierarchical(
     bool
         ``True`` if a structural bijection exists between the two posets.
 
-    Algorithm
-    ---------
-    1. SHA-256 cache lookup — symmetric key ``{h_a, h_b}``.
-    2. Shape / relation-count invariant check.
-    3. Trivial-poset base case.
-    4. Strip semi-equidual boundaries; compare depth equivalents; recurse.
-    5. Canonical-tree fallback.
-
     Complexity
     ----------
     Time O(n² · log n) per level, Space O(n²) plus cache entries.
     """
+    matrix_a = xp.asarray(matrix_a)
+    matrix_b = xp.asarray(matrix_b)
+
     h_a = _matrix_hash(matrix_a)
     h_b = _matrix_hash(matrix_b)
-    pair_key = tuple(sorted((h_a, h_b)))  # type: ignore[arg-type]
+    pair_key = "-".join(sorted([h_a, h_b]))
 
     if pair_key in _isomorphism_cache:
         return _isomorphism_cache[pair_key]
@@ -90,7 +92,7 @@ def verify_poset_isomorphism_hierarchical(
 
     try:
         # 2. Global invariants
-        if matrix_a.shape != matrix_b.shape or np.sum(matrix_a) != np.sum(matrix_b):
+        if matrix_a.shape != matrix_b.shape or int(xp.sum(matrix_a)) != int(xp.sum(matrix_b)):
             result = False
 
         # 3. Trivial base case
@@ -115,10 +117,11 @@ def verify_poset_isomorphism_hierarchical(
                 ):
                     equiv_b = generate_semi_depth_equivalents(depths_b)
                     if equiv_b is not None and depths_a in equiv_b:
-                        list_a.sort(key=get_poset_signature)
-                        list_b.sort(key=get_poset_signature)
+                        # Sorting lists cleanly via permutation-invariant signatures
+                        list_a = sorted(list_a, key=get_poset_signature)
+                        list_b = sorted(list_b, key=get_poset_signature)
 
-                        def _robust_match(sa: NDArray[np.int_], sb: NDArray[np.int_]) -> bool:
+                        def _robust_match(sa: Any, sb: Any) -> bool:
                             if not verify_poset_isomorphism_hierarchical(sa, sb, depth + 1):
                                 return False
                             t_a = build_poset_decomposition_tree(sa)
@@ -130,11 +133,13 @@ def verify_poset_isomorphism_hierarchical(
 
             # 5. Canonical-tree fallback
             if not result:
+                logger.debug(f"Boundary layers inconclusive at recursion depth {depth}. Triggering fallback canonical tree identity scans.")
                 tree_a = build_poset_decomposition_tree(matrix_a)
                 tree_b = build_poset_decomposition_tree(matrix_b)
                 result = are_poset_structures_strictly_equal(tree_a, tree_b)
 
-    except Exception:  # noqa: BLE001
+    except Exception as e:
+        logger.error(f"Unexpected structural discrepancy managed at layer depth {depth}: {str(e)}")
         result = False
 
     _isomorphism_cache[pair_key] = result
