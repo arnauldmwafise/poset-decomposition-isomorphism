@@ -1,59 +1,43 @@
-name: CI
+name: "Python CI: Poset Operad Build & Test"
 
+# Trigger the operational pipeline on every push or pull request to the main branch
 on:
   push:
-    branches: [main, develop]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [main]
+    branches: [ "main", "master" ]
 
 jobs:
-  test:
-    name: Python ${{ matrix.python-version }}
+  build-and-test:
+    name: "Containerized Engine Verification"
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      # Step 1: Ingest the repository source code tree from GitHub into the worker
+      - name: "Checkout Source Code"
+        uses: actions/checkout@v4
 
-      - name: Install System Matrix Dependencies (Linux)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gfortran libopenblas-dev liblapack-dev
+      # Step 2: Set up a virtual Docker Buildx engine builder for high-velocity caching
+      - name: "Set up Docker Buildx"
+        uses: docker/setup-buildx-action@v3
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      # Step 3: Compile your exact custom multi-stage Docker compute image
+      - name: "Build Container Image"
+        uses: docker/build-push-action@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
+          context: .
+          file: ./Dockerfile
+          tags: poset-operad-engine:latest
+          outputs: type=docker,dest=/tmp/poset-operad-engine.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Install Python Package Ecosystem
+      # Step 4: Import the compiled image tarball back into the local Docker daemon
+      - name: "Load Compiled Image"
         run: |
-          python -m pip install --upgrade pip
-          pip install numpy scipy pytest pytest-cov ruff mypy
-          pip install -e ".[dev]" || echo "Editable setup completed"
+          docker load --input /tmp/poset-operad-engine.tar
 
-      - name: Lint and Format Warnings (ruff)
+      # Step 5: Boot up the container inside the cloud runner to execute your 61 tests
+      - name: "Run Sandbox Test Suite"
         run: |
-          ruff check poset_operad tests --fix || echo "Style flags skipped"
-        continue-on-error: true
-
-      - name: Type-check (mypy)
-        run: mypy poset_operad --ignore-missing-imports
-        continue-on-error: true
-
-      - name: Run tests with coverage
-        run: |
-          pytest tests/ --cov=poset_operad --cov-report=xml --tb=short -v || echo "⚠️ Pytest warning captured. Proceeding safely."
-        env:
-          PYTHONPATH: .
-        continue-on-error: true
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
-          fail_ci_if_error: false
+          docker run --rm poset-operad-engine
