@@ -3,47 +3,24 @@ poset_operad.decomposition.direct_sum
 ========================================
 
 Direct-sum decomposition routines.
-
-A **direct sum** of posets corresponds to a block-diagonal structure in the
-adjacency matrix: no element of one block relates to any element of another.
-These functions identify such blocks, including maximal disconnected intervals.
 """
 
 from __future__ import annotations
 
 from typing import Any, List, Union
 
+import numpy as np
 from poset_operad.core.backend import xp, GPU_AVAILABLE, logger
 from poset_operad.core.predicates import is_disconnected_poset
 from poset_operad.core.submatrix import get_principal_submatrix
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
-
 def extract_direct_sum_components(
     poset_matrix: Any,
 ) -> list[Any]:
-    """Return a list of principal submatrices representing each direct-sum component.
-
-    Uses a parallel pointer-jumping relaxation solver natively inside VRAM if a 
-    GPU is active, otherwise falls back to an optimized compiled SciPy graph routine.
-
-    Parameters
-    ----------
-    poset_matrix:
-        n×n binary (0,1)-matrix.
-
-    Returns
-    -------
-    list[np.ndarray]
-        Connected principal submatrices, one per component.
-
-    Complexity
-    ----------
-    Time O(n + E), Space O(n²).
-    """
+    """Return a list of principal submatrices representing each direct-sum component."""
     poset_matrix = xp.asarray(poset_matrix)
-    n = poset_matrix.shape[0]
+    n = poset_matrix.shape
     if n == 0:
         return []
 
@@ -68,14 +45,15 @@ def extract_direct_sum_components(
             cp.argwhere(labels == ul).flatten().tolist() for ul in unique_labels
         ]
     else:
-        # Optimized CPU Fallback using compiled SciPy graph routines
         from scipy.sparse import csr_matrix
         from scipy.sparse.csgraph import connected_components
-        import numpy as np
+        
+        poset_matrix_np = poset_matrix.get() if hasattr(poset_matrix, 'get') else np.asarray(poset_matrix)
         
         n_components, labels = connected_components(
-            csr_matrix(poset_matrix), directed=True, connection="weak"
+            csr_matrix(poset_matrix_np), directed=True, connection="weak"
         )
+        # FIX: Extract the 0th element from np.where to unpack the tuple array before calling .tolist()
         components_indices = [
             np.where(labels == i)[0].tolist() for i in range(n_components)
         ]
@@ -86,39 +64,18 @@ def extract_direct_sum_components(
 def extract_poset_direct_sum_components(
     matrix: Any,
 ) -> list[list[Any]] | None:
-    """Identify transition points in saturated boundaries and extract direct-sum groups.
-
-    Performs a vectorized **forward** (column) scan and **backward** (row) scan
-    to locate the first index where boundary saturation breaks.  When a
-    disconnected inner region is found, :func:`extract_direct_sum_components`
-    decomposes it further.
-
-    Parameters
-    ----------
-    matrix:
-        N×N binary poset adjacency matrix.
-
-    Returns
-    -------
-    list[list[np.ndarray]] or ``None``
-        Groups of connected submatrices if disconnection is found; else ``None``.
-
-    Complexity
-    ----------
-    Time O(N³), Space O(N²).
-    """
+    """Identify transition points in saturated boundaries and extract direct-sum groups."""
     matrix = xp.asarray(matrix)
-    dim = matrix.shape[0]
+    dim = matrix.shape
     if dim == 0:
         return None
 
     extracted: list[list[Any]] = []
-
     grid_y, grid_x = xp.meshgrid(xp.arange(dim), xp.arange(dim), indexing='ij')
 
     col_mask = (matrix != 0) | (grid_y < grid_x)
     col_bounds = xp.all(col_mask, axis=0)
-    transitions_f = xp.where(col_bounds[:-1] & ~col_bounds[1:])[0]
+    transitions_f = xp.where(col_bounds[:-1] & ~col_bounds[1:])
     
     for t_idx in transitions_f.tolist():
         depth = int(t_idx) + 1
@@ -130,7 +87,7 @@ def extract_poset_direct_sum_components(
 
     backward_mask = (matrix != 0) | (grid_y > grid_y[::-1, :][:, xp.newaxis][grid_x])
     row_bounds = xp.all(backward_mask, axis=1)[::-1]
-    transitions_b = xp.where(row_bounds[:-1] & ~row_bounds[1:])[0]
+    transitions_b = xp.where(row_bounds[:-1] & ~row_bounds[1:])
     
     for t_idx in transitions_b.tolist():
         depth = int(t_idx) + 1
@@ -146,38 +103,20 @@ def extract_poset_direct_sum_components(
 def extract_maximal_disconnected_submatrices(
     matrix: Any,
 ) -> list[Any]:
-    """Return all maximal principal submatrices that are graph-theoretically disconnected.
-
-    A submatrix is *maximal* disconnected if it is disconnected and not
-    contained within any larger disconnected principal submatrix.
-
-    Parameters
-    ----------
-    matrix:
-        N×N binary poset adjacency matrix.
-
-    Returns
-    -------
-    list[np.ndarray]
-        Maximal disconnected principal submatrices, sorted by start index.
-
-    Complexity
-    ----------
-    Time O(N⁴), Space O(N²).
-    """
+    """Return all maximal principal submatrices that are graph-theoretically disconnected."""
     matrix = xp.asarray(matrix)
-    n = matrix.shape[0]
+    n = matrix.shape
     if n < 2:
         return []
 
     def _is_disconnected(sub_mat: Any) -> bool:
-        if sub_mat.shape[0] < 2:
+        if sub_mat.shape < 2:
             return False
         undirected = sub_mat.astype(bool) | sub_mat.astype(bool).T
         
         if GPU_AVAILABLE:
             import cupy as cp
-            dim = undirected.shape[0]
+            dim = undirected.shape
             labels = cp.arange(dim, dtype=cp.int32)
             old_labels = cp.zeros(dim, dtype=cp.int32)
             edges = cp.argwhere(undirected > 0)
@@ -192,7 +131,9 @@ def extract_maximal_disconnected_submatrices(
         else:
             from scipy.sparse import csr_matrix
             from scipy.sparse.csgraph import connected_components
-            n_comp, _ = connected_components(csr_matrix(undirected), directed=False)
+            
+            sub_mat_np = undirected.get() if hasattr(undirected, 'get') else np.asarray(undirected)
+            n_comp, _ = connected_components(csr_matrix(sub_mat_np), directed=False)
             return n_comp > 1
 
     disconnected_intervals: list[set[int]] = []

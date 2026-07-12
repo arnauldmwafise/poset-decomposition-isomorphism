@@ -8,6 +8,7 @@ Recursive poset decomposition tree.
 from __future__ import annotations
 
 from typing import Any, List, Tuple, Union, Callable
+import numpy as np
 
 from poset_operad.core.backend import xp, GPU_AVAILABLE, logger
 from poset_operad.core.predicates import is_non_trivial_poset
@@ -15,15 +16,22 @@ from poset_operad.core.submatrix import get_principal_submatrix
 from poset_operad.decomposition.boundary import extract_disconnected_core_with_depths
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
-
 def decompose_dual_core_into_components(
     poset_matrix: Any,
 ) -> tuple[list[tuple[Any, Any]], list[Any]]:
     """Decompose the disconnected core of a dualizable poset into connected components."""
     poset_matrix = xp.asarray(poset_matrix)
     core_extraction = extract_disconnected_core_with_depths(poset_matrix)
+    
+    # If the current subposet has no saturated boundaries, check for a direct sum split
     if core_extraction is None:
+        from poset_operad.decomposition.direct_sum import extract_direct_sum_components
+        from poset_operad.core.predicates import is_disconnected_poset
+        if is_disconnected_poset(poset_matrix):
+            submatrices = extract_direct_sum_components(poset_matrix)
+            # Filter out singletons to match the structural non-trivial descent criteria
+            submatrices = [sub for sub in submatrices if sub.shape[0] > 1]
+            return [(poset_matrix, sub) for sub in submatrices], submatrices
         return [], []
 
     disconn_core, _metadata = core_extraction
@@ -54,11 +62,10 @@ def decompose_dual_core_into_components(
     else:
         from scipy.sparse import csr_matrix
         from scipy.sparse.csgraph import connected_components
-        import numpy as np
         
-        _, labels = connected_components(csr_matrix(disconn_core), directed=False)
+        disconn_core_np = disconn_core.get() if hasattr(disconn_core, 'get') else np.asarray(disconn_core)
+        _, labels = connected_components(csr_matrix(disconn_core_np), directed=False)
         unique_labels = np.unique(labels)
-        # FIX: Extract element [0] from np.where to unpack the index array cleanly
         components_indices = [
             np.where(labels == label)[0].tolist() for label in unique_labels
         ]
@@ -103,7 +110,7 @@ def update_nested_posets(
 ) -> list | tuple | Any:
     """Recursively apply *func* to every 2-D ndarray found in *collection*."""
     if isinstance(collection, xp.ndarray) and collection.ndim == 2:
-        result = func(collection)  # type: ignore[operator]
+        result = func(collection)
         if isinstance(result, list) and len(result) > 0:
             return result
         return collection
