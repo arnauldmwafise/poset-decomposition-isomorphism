@@ -1,104 +1,81 @@
 """
 poset_operad.isomorphism.saturation
-======================================
+====================================
 
-Saturation-metric and maximal-disconnection isomorphism verification.
-
-Targets posets with irregular or non-obvious direct-sum structures by using
-triangular saturation counts as a fast global invariant and maximal
-disconnected sub-matrices as the structural sieve.
+Saturation-based poset matrix tree isomorphism verification.
 """
 
 from __future__ import annotations
 
-import itertools
-from collections.abc import Callable
-from typing import Any, Dict, Tuple
+from typing import Any, Callable
 
 from poset_operad.core.backend import xp, logger
+from poset_operad.decomposition.boundary import extract_semiequidual_subcomponents
 from poset_operad.decomposition.direct_sum import extract_maximal_disconnected_submatrices
+from poset_operad.decomposition.tree import build_poset_decomposition_tree
 from poset_operad.utils.equality import are_poset_structures_strictly_equal
-from poset_operad.utils.metrics import compute_triangular_saturation_metrics
+from poset_operad.utils.signatures import get_poset_signature
 
 
 def verify_isomorphism_via_maximal_disconnection_and_saturation(
-    M1: Any,
-    M2: Any,
+    M1: Any, M2: Any
 ) -> bool:
-    """Verify isomorphism via saturation metrics and maximal disconnected sub-matrices.
-
-    Steps
-    -----
-    1. Compute and compare row/column triangular saturation counts.
-    2. Partition both matrices into maximal disconnected principal submatrices.
-    3. Compare the resulting collections with
-       :func:`are_poset_structures_strictly_equal`.
-
-    Parameters
-    ----------
-    M1, M2:
-        n×n binary poset adjacency matrices.
-
-    Returns
-    -------
-    bool
-
-    Complexity
-    ----------
-    Time O(N⁴), Space O(N²).
-    """
+    """Core Saturation Engine (Tier 3): Verifies isomorphism via maximal disconnections."""
     M1 = xp.asarray(M1)
     M2 = xp.asarray(M2)
 
-    metric1 = compute_triangular_saturation_metrics(M1)
-    metric2 = compute_triangular_saturation_metrics(M2)
-    
-    # Fast global invariant triage step
-    if sorted(list(metric1)) != sorted(list(metric2)):
-        logger.info("Saturation isomorphism check: Fast structural mismatch caught on triangular metrics.")
+    if M1.shape != M2.shape:
         return False
 
-    logger.debug("Triangular metrics matched. Extracting maximal disconnected submatrices for deep verification.")
+    # 1. CRITICAL RESEARCH CRITERIA: Check boundary profiles before doing heavy processing.
+    # If the structures are completely non-semi-equidual (depths are 0,0), they elude
+    # the Saturation engine. Reject immediately and return False.
+    extract_a = extract_semiequidual_subcomponents(M1)
+    extract_b = extract_semiequidual_subcomponents(M2)
+    
+    if extract_a and extract_b:
+        _, _, depths_a = extract_a
+        _, _, depths_b = extract_b
+        if depths_a == (0, 0) or depths_b == (0, 0):
+            return False
+
+    # 2. Extract maximal graph-theoretically disconnected submatrices
     output1 = extract_maximal_disconnected_submatrices(M1)
     output2 = extract_maximal_disconnected_submatrices(M2)
-    
-    isomorphic = are_poset_structures_strictly_equal(output1, output2)
-    logger.info(f"Maximal disconnection isomorphism check complete. Result Isomorphic: {isomorphic}")
-    return isomorphic
+
+    if len(output1) != len(output2):
+        return False
+
+    # If maximal disconnected partitions are found, match their signatures
+    if len(output1) > 0:
+        sorted_out1 = sorted(output1, key=get_poset_signature)
+        sorted_out2 = sorted(output2, key=get_poset_signature)
+        
+        for sub1, sub2 in zip(sorted_out1, sorted_out2):
+            if not are_poset_structures_strictly_equal(
+                build_poset_decomposition_tree(sub1),
+                build_poset_decomposition_tree(sub2)
+            ):
+                return False
+        return True
+
+    # Fall back to strict tree identity check only for valid semi-equidual elements
+    return are_poset_structures_strictly_equal(
+        build_poset_decomposition_tree(M1),
+        build_poset_decomposition_tree(M2)
+    )
 
 
 def check_all_isomorphisms(
-    testbag: list[Any],
-    predicate: Callable[[Any, Any], bool],
+    bag: list[Any], 
+    verification_func: Callable[[Any, Any], bool]
 ) -> dict[tuple[int, int], bool]:
-    """Exhaustive pairwise isomorphism test across every ordered pair in *testbag*.
-
-    Parameters
-    ----------
-    testbag:
-        Collection of 2-D ndarray poset matrices.
-    predicate:
-        Binary isomorphism function returning ``bool``.
-
-    Returns
-    -------
-    dict[tuple[int, int], bool]
-        Mapping ``(i, j) → predicate(testbag[i], testbag[j])``.
-
-    Complexity
-    ----------
-    Time O(n² · T), Space O(n²).
-    """
-    n = len(testbag)
-    logger.info(f"Launching exhaustive pairwise evaluation sweep over a bag of {n} poset matrices ({n * n} checks).")
-    
-    # Pre-cast all array vectors onto the optimized target hardware device layer
-    device_bag = [xp.asarray(matrix) for matrix in testbag]
-    
-    results = {
-        (x, y): bool(predicate(device_bag[x], device_bag[y]))
-        for x, y in itertools.product(range(n), repeat=2)
-    }
-    
+    """Exhaustively maps an NxN pairwise check grid over a collection bag of matrices."""
+    logger.info(f"Launching exhaustive pairwise evaluation sweep over a bag of {len(bag)} poset matrices ({len(bag)**2} checks).")
+    results = {}
+    for i, m1 in enumerate(bag):
+        for j, m2 in enumerate(bag):
+            results[(i, j)] = verification_func(m1, m2)
+            
     logger.info("Pairwise isomorphism matrix evaluation completed successfully.")
     return results

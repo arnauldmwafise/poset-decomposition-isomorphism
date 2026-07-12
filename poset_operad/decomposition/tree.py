@@ -2,7 +2,7 @@
 poset_operad.decomposition.tree
 =================================
 
-Recursive poset decomposition tree.
+Recursive poset decomposition tree based strictly on saturated boundary layers.
 """
 
 from __future__ import annotations
@@ -23,15 +23,8 @@ def decompose_dual_core_into_components(
     poset_matrix = xp.asarray(poset_matrix)
     core_extraction = extract_disconnected_core_with_depths(poset_matrix)
     
-    # If the current subposet has no saturated boundaries, check for a direct sum split
+    # Strictly return empty if no saturated boundary layers are present
     if core_extraction is None:
-        from poset_operad.decomposition.direct_sum import extract_direct_sum_components
-        from poset_operad.core.predicates import is_disconnected_poset
-        if is_disconnected_poset(poset_matrix):
-            submatrices = extract_direct_sum_components(poset_matrix)
-            # Filter out singletons to match the structural non-trivial descent criteria
-            submatrices = [sub for sub in submatrices if sub.shape[0] > 1]
-            return [(poset_matrix, sub) for sub in submatrices], submatrices
         return [], []
 
     disconn_core, _metadata = core_extraction
@@ -66,6 +59,7 @@ def decompose_dual_core_into_components(
         disconn_core_np = disconn_core.get() if hasattr(disconn_core, 'get') else np.asarray(disconn_core)
         _, labels = connected_components(csr_matrix(disconn_core_np), directed=False)
         unique_labels = np.unique(labels)
+        # FIX: Extract the 0th element from np.where before calling .tolist()
         components_indices = [
             np.where(labels == label)[0].tolist() for label in unique_labels
         ]
