@@ -20,7 +20,7 @@ def extract_direct_sum_components(
 ) -> list[Any]:
     """Return a list of principal submatrices representing each direct-sum component."""
     poset_matrix = xp.asarray(poset_matrix)
-    n = poset_matrix.shape
+    n = poset_matrix.shape[0]
     if n == 0:
         return []
 
@@ -53,7 +53,6 @@ def extract_direct_sum_components(
         n_components, labels = connected_components(
             csr_matrix(poset_matrix_np), directed=True, connection="weak"
         )
-        # FIX: Extract the 0th element from np.where to unpack the tuple array before calling .tolist()
         components_indices = [
             np.where(labels == i)[0].tolist() for i in range(n_components)
         ]
@@ -66,7 +65,7 @@ def extract_poset_direct_sum_components(
 ) -> list[list[Any]] | None:
     """Identify transition points in saturated boundaries and extract direct-sum groups."""
     matrix = xp.asarray(matrix)
-    dim = matrix.shape
+    dim = matrix.shape[0]
     if dim == 0:
         return None
 
@@ -75,7 +74,7 @@ def extract_poset_direct_sum_components(
 
     col_mask = (matrix != 0) | (grid_y < grid_x)
     col_bounds = xp.all(col_mask, axis=0)
-    transitions_f = xp.where(col_bounds[:-1] & ~col_bounds[1:])
+    transitions_f = xp.where(col_bounds[:-1] & ~col_bounds[1:])[0]
     
     for t_idx in transitions_f.tolist():
         depth = int(t_idx) + 1
@@ -87,7 +86,7 @@ def extract_poset_direct_sum_components(
 
     backward_mask = (matrix != 0) | (grid_y > grid_y[::-1, :][:, xp.newaxis][grid_x])
     row_bounds = xp.all(backward_mask, axis=1)[::-1]
-    transitions_b = xp.where(row_bounds[:-1] & ~row_bounds[1:])
+    transitions_b = xp.where(row_bounds[:-1] & ~row_bounds[1:])[0]
     
     for t_idx in transitions_b.tolist():
         depth = int(t_idx) + 1
@@ -105,18 +104,18 @@ def extract_maximal_disconnected_submatrices(
 ) -> list[Any]:
     """Return all maximal principal submatrices that are graph-theoretically disconnected."""
     matrix = xp.asarray(matrix)
-    n = matrix.shape
+    n = matrix.shape[0]
     if n < 2:
         return []
 
     def _is_disconnected(sub_mat: Any) -> bool:
-        if sub_mat.shape < 2:
+        if sub_mat.shape[0] < 2:
             return False
         undirected = sub_mat.astype(bool) | sub_mat.astype(bool).T
         
         if GPU_AVAILABLE:
             import cupy as cp
-            dim = undirected.shape
+            dim = undirected.shape[0]
             labels = cp.arange(dim, dtype=cp.int32)
             old_labels = cp.zeros(dim, dtype=cp.int32)
             edges = cp.argwhere(undirected > 0)
